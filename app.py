@@ -6,6 +6,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import requests
 import yfinance as yf
+import urllib.parse  # <-- FIXED: Explicitly added native URL encoding utility
 from datetime import datetime, timedelta
 
 # --- OFFICIAL NATIVE SDK IMPORTS ---
@@ -83,8 +84,11 @@ def parse_final_payload(df, clean_symbol, is_crypto):
     df = df.sort_index()
     current_price = float(df['Close'].iloc[-1])
     
-    # Fetch public investment sentiment indices via Google News RSS streams
-    social_rss = f"https://google.com{clean_symbol.replace('/','+')}+stock+market+investing&hl=en-US&gl=US&ceid=US:en"
+    # FIX: Uses urllib.parse.quote to safely encode search strings and completely prevent the nonnumeric port crash
+    query_string = f"{clean_symbol} stock market investing"
+    encoded_query = urllib.parse.quote(query_string)
+    social_rss = f"https://google.com{encoded_query}&hl=en-US&gl=US&ceid=US:en"
+    
     feed = feedparser.parse(social_rss)
     headlines = [entry.title for entry in feed.entries[:4]]
     
@@ -212,4 +216,3 @@ if run_btn and ticker_input:
                 for headline in data['headlines']:
                     st.caption(f"🔹 {headline}")
 else:
-    st.info("💡 Control Menu: Input stock symbols (e.g. NVDA, AAPL) or crypto tokens (e.g. BTC, ETH) above and execute analysis.")
