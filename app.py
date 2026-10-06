@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="Macro AI Financial Workstation", layout="wide")
 
 # Replace this string with the API key you generated from Alpha Vantage
-ALPHA_VANTAGE_KEY = "demo"  # Replace "demo" with your real key to analyze assets other than IBM/AAPL/AMZN
+ALPHA_VANTAGE_KEY = "L187MLXWUVYFBBV8"  # Replace "demo" with your real key to analyze assets other than IBM/AAPL/AMZN
 HF_API_URL = "https://huggingface.co"
 
 plt.style.use('dark_background')
@@ -23,7 +23,7 @@ def fetch_stable_market_data(symbol: str):
     """
     try:
         ticker_str = symbol.strip().upper()
-        url = f"https://alphavantage.co{ticker_str}&outputsize=full&apikey=L187MLXWUVYFBBV8"
+        url = f"https://alphavantage.co{ticker_str}&outputsize=full&apikey={ALPHA_VANTAGE_KEY}"
         
         with httpx.Client() as client:
             response = client.get(url, timeout=15.0)
