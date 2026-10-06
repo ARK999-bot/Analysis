@@ -18,12 +18,14 @@ plt.style.use('dark_background')
 # --- NATIVE STABLE DATA API PROCESSING ENGINE ---
 def fetch_stable_market_data(symbol: str):
     """
-    Retrieves historical price matrices cleanly from Alpha Vantage developer endpoints
-    to completely bypass Yahoo Cloud IP restriction blocks.
+    Retrieves high-frequency stock slices cleanly using free Alpha Vantage 
+    Intraday endpoints to permanently resolve cloud network blocks.
     """
     try:
         ticker_str = symbol.strip().upper()
-        url = f"https://alphavantage.co{ticker_str}&outputsize=full&apikey={ALPHA_VANTAGE_KEY}"
+        
+        # Free Tier Core Fix: Switched endpoint parameters to Intraday 5-minute ticks
+        url = f"https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={ticker_str}&interval=5min&outputsize=compact&apikey={ALPHA_VANTAGE_KEY}"
         
         with httpx.Client() as client:
             response = client.get(url, timeout=15.0)
@@ -31,12 +33,14 @@ def fetch_stable_market_data(symbol: str):
                 return None
             
             raw_data = response.json()
-            # Catch Alpha Vantage API quota or tracking warning flags safely
-            if "Time Series (Daily)" not in raw_data:
+            
+            # Catch Alpha Vantage API limit warnings or missing key restrictions
+            if "Time Series (5min)" not in raw_data:
+                st.sidebar.error("⚠️ API Error: Check if you replaced your API key correctly on Line 11 without brackets {}")
                 return None
                 
-            # Restructure JSON elements into an analytical Pandas Dataframe
-            time_series = raw_data["Time Series (Daily)"]
+            # Parse individual timestamp records into our dataframe canvas
+            time_series = raw_data["Time Series (5min)"]
             df_records = []
             for date_str, metrics in time_series.items():
                 df_records.append({
@@ -44,6 +48,7 @@ def fetch_stable_market_data(symbol: str):
                     "Close": float(metrics["4. close"])
                 })
                 
+            # Organize timeline sequences sequentially
             hist_df = pd.DataFrame(df_records).sort_values(by="Date").set_index("Date")
             current_price = hist_df['Close'].iloc[-1]
             
@@ -59,6 +64,7 @@ def fetch_stable_market_data(symbol: str):
             }
     except Exception:
         return None
+
 
 def query_qwen_macro_inference(symbol: str, data: dict) -> dict:
     news_context = "\n- ".join(data['headlines'])
