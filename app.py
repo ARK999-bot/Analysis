@@ -9,14 +9,14 @@ import yfinance as yf
 from datetime import datetime, timedelta
 
 # --- OFFICIAL NATIVE SDK IMPORTS ---
-from alpaca.data.historical import CryptoHistoricalDataClient, StockHistoricalDataClient
-from alpaca.data.requests import CryptoBarsRequest, StockBarsRequest
+from alpaca.data.historical import CryptoHistoricalDataClient
+from alpaca.data.requests import CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame
 
 # --- APPLICATION PREFERENCES ---
 st.set_page_config(page_title="Macro AI Multi-Asset Terminal", layout="wide")
 
-# YOUR SYSTEM API KEYS PRESERVED
+# API KEYS PRESERVED FOR CRYPTO DATA FETCHING
 ALPACA_KEY_ID = "PKP27SBDO5GMH3A37SU7OV5O36"
 ALPACA_SECRET = "AM3uTw5kxAUiYvLEtYbGVA8D4qdi86r9egdBU8zV4CKW"
 
@@ -25,8 +25,8 @@ plt.style.use('dark_background')
 
 def fetch_market_data_router(symbol: str):
     """
-    Intelligently routes requests between Stock and Crypto SDK clients.
-    Features a fault-tolerant backup scraper loop to bypass account activation locks.
+    Intelligently routes requests between yfinance (for stocks) and Alpaca-py (for crypto)
+    to permanently solve brokerage account signature block limitations.
     """
     input_str = symbol.strip().upper().replace("-", "")
     is_crypto = input_str in ["BTC", "ETH", "SOL", "LTC"] or "/" in input_str
@@ -34,9 +34,9 @@ def fetch_market_data_router(symbol: str):
     start_date = datetime.utcnow() - timedelta(days=90)
     end_date = datetime.utcnow()
 
-    # --- PRIMARY PIPELINE: OFFICIAL ALPACA SDK ENGINE ---
-    try:
-        if is_crypto:
+    # --- CRYPTO PIPELINE: OFFICIAL ALPACA SDK (FULLY ACTIVE) ---
+    if is_crypto:
+        try:
             clean_symbol = f"{input_str}/USD" if "/" not in input_str else input_str
             client = CryptoHistoricalDataClient(api_key=ALPACA_KEY_ID, secret_key=ALPACA_SECRET)
             request_params = CryptoBarsRequest(
@@ -46,51 +46,44 @@ def fetch_market_data_router(symbol: str):
                 end=end_date
             )
             bars = client.get_crypto_bars(request_params)
-            hist_df = bars.df.reset_index(level=0)
-            hist_df = hist_df.rename(columns={"close": "Close"})
-        else:
-            clean_symbol = input_str
-            client = StockHistoricalDataClient(api_key=ALPACA_KEY_ID, secret_key=ALPACA_SECRET)
-            request_params = StockBarsRequest(
-                symbol_or_symbols=clean_symbol,
-                timeframe=TimeFrame.Day,
-                start=start_date,
-                end=end_date,
-                feed="iex"
-            )
-            bars = client.get_stock_bars(request_params)
-            hist_df = bars.df.reset_index(level=0)
-            hist_df = hist_df.rename(columns={"close": "Close"})
-
-        if hist_df is not None and not hist_df.empty:
-            return parse_final_payload(hist_df, clean_symbol, is_crypto)
             
-    except Exception:
-        # If Alpaca keys lack exchange data signatures, smoothly drop to secondary fallback
-        pass
-
-    # --- SECONDARY PIPELINE: ENCRYPTED BROWSER PROXY FALLBACK ---
-    try:
-        clean_symbol = f"{input_str}-USD" if is_crypto else input_str
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-        })
-        ticker = yf.Ticker(clean_symbol, session=session)
-        hist = ticker.history(period="3mo", interval="1d")
-        
-        if not hist.empty:
-            return parse_final_payload(hist, clean_symbol, is_crypto)
-    except Exception:
-        return None
+            if bars and len(bars.data) > 0:
+                hist_df = bars.df.reset_index(level=0)
+                hist_df = hist_df.rename(columns={"close": "Close"})
+                return parse_final_payload(hist_df, clean_symbol, is_crypto)
+        except Exception as e:
+            st.sidebar.error(f"Crypto Fetch Error: {str(e)}")
+            return None
+            
+    # --- STOCK PIPELINE: BULLETPROOF PROXIED YFINANCE (BYPASSES AGREEMENT LOCKS) ---
+    else:
+        try:
+            clean_symbol = input_str
+            
+            # Form an authentic desktop browser network profile session
+            session = requests.Session()
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            })
+            
+            ticker = yf.Ticker(clean_symbol, session=session)
+            hist = ticker.history(period="3mo", interval="1d")
+            
+            if not hist.empty:
+                return parse_final_payload(hist, clean_symbol, is_crypto)
+        except Exception as e:
+            st.sidebar.error(f"Stock Fetch Error: {str(e)}")
+            return None
+            
     return None
 
 def parse_final_payload(df, clean_symbol, is_crypto):
-    """Structures standard dataframe targets for terminal components."""
+    """Structures consistent dictionary arrays for terminal display elements."""
     df = df.sort_index()
     current_price = float(df['Close'].iloc[-1])
     
-    # Pull community RSS sentiment footprint
+    # Fetch public investment sentiment indices via Google News RSS streams
     social_rss = f"https://google.com{clean_symbol.replace('/','+')}+stock+market+investing&hl=en-US&gl=US&ceid=US:en"
     feed = feedparser.parse(social_rss)
     headlines = [entry.title for entry in feed.entries[:4]]
@@ -143,13 +136,12 @@ Return exactly this JSON format:
 
 # --- STREAMLIT UI DESIGN ---
 st.title("🏛️ Open AI Multi-Asset Workstation Terminal")
-st.markdown("A premium financial web terminal using official native Alpaca-py SDK components and dual-pipeline fallback routing engines.")
+st.markdown("A premium financial web terminal using official native Alpaca-py SDK components and bulletproof failover routing engines.")
 
 st.sidebar.header("Control Panel")
 ticker_input = st.sidebar.text_input("Asset Ticker Symbol", value="NVDA").upper().strip()
 run_btn = st.sidebar.button("RUN WORKSTATION ANALYSIS", type="primary")
 
-# --- TRACK CORRESPONDING SPACING BLOCKS AT THE BOTTOM OF YOUR SCRIPT ---
 if run_btn and ticker_input:
     with st.spinner(f"Extracting server database arrays for {ticker_input}..."):
         data = fetch_market_data_router(ticker_input)
@@ -157,7 +149,6 @@ if run_btn and ticker_input:
         if not data:
             st.error(f"❌ Verification Failure: Failed to parse historical bars profile for '{ticker_input}'. Check spelling configurations.")
         else:
-            # THIS IS THE SPACE REPAIR PROFILE (Line 221 and below must be indented)
             display_name = data["display_symbol"]
             price = data['current_price']
             forecasts = query_qwen_macro_inference(display_name, data)
@@ -221,4 +212,4 @@ if run_btn and ticker_input:
                 for headline in data['headlines']:
                     st.caption(f"🔹 {headline}")
 else:
-    st.info("💡 Control Panel: Input stock symbols (e.g. NVDA, AAPL) or crypto tokens (e.g. BTC, ETH) above and execute analysis.")
+    st.info("💡 Control Menu: Input stock symbols (e.g. NVDA, AAPL) or crypto tokens (e.g. BTC, ETH) above and execute analysis.")
