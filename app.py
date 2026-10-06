@@ -217,7 +217,7 @@ if run_btn and ticker_input:
                 
                 fig, ax = plt.subplots(figsize=(10, 5.2))
                 fig.patch.set_facecolor('#0e1117')
-				                ax.set_facecolor('#0e1117')
+				ax.set_facecolor('#0e1117')
                 
                 # Filter past pricing history matrix curves (recent 45 periods)
                 hist_subset = data['hist'].tail(45).copy()
