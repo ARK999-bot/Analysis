@@ -2,69 +2,74 @@ import streamlit as st
 import feedparser
 import httpx
 import json
+import time
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 
-# --- APPLICATION PREFERENCES SETTINGS ---
+# --- APPLICATION PREFERENCES ---
 st.set_page_config(page_title="Macro AI Financial Workstation", layout="wide")
 
-# Replace this string with the API key you generated from Alpha Vantage
-ALPHA_VANTAGE_KEY = "L187MLXWUVYFBBV8"  # Replace "demo" with your real key to analyze assets other than IBM/AAPL/AMZN
+# HARDCODED ACTIVE KEY FROM THE PROVIDED URL
+ALPHA_VANTAGE_KEY = "L187MLXWUVYFBBV8"
 HF_API_URL = "https://huggingface.co"
 
 plt.style.use('dark_background')
 
-# --- NATIVE STABLE DATA API PROCESSING ENGINE ---
+# --- HARDENED API PROCESSING ENGINE ---
 def fetch_stable_market_data(symbol: str):
     """
-    Retrieves high-frequency stock slices cleanly using free Alpha Vantage 
-    Intraday endpoints to permanently resolve cloud network blocks.
+    Retrieves daily history directly from Alpha Vantage using your explicit key.
+    Includes an automatic retry mechanism to bypass per-second burst limits.
     """
-    try:
-        ticker_str = symbol.strip().upper()
-        
-        # Free Tier Core Fix: Switched endpoint parameters to Intraday 5-minute ticks
-        url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={ticker_str}&interval=5min&outputsize=compact&apikey={ALPHA_VANTAGE_KEY}"
-        
-        with httpx.Client() as client:
-            response = client.get(url, timeout=15.0)
-            if response.status_code != 200:
-                return None
-            
-            raw_data = response.json()
-            
-            # Catch Alpha Vantage API limit warnings or missing key restrictions
-            if "Time Series (5min)" not in raw_data:
-                st.sidebar.error("⚠️ API Error: Check if you replaced your API key correctly on Line 11 without brackets {}")
-                return None
+    ticker_str = symbol.strip().upper()
+    url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={ticker_str}&outputsize=compact&apikey={ALPHA_VANTAGE_KEY}"
+    
+    # Allow up to 3 automated pacing retries if a limit message triggers
+    for attempt in range(3):
+        try:
+            with httpx.Client() as client:
+                response = client.get(url, timeout=15.0)
+                if response.status_code != 200:
+                    return None
                 
-            # Parse individual timestamp records into our dataframe canvas
-            time_series = raw_data["Time Series (5min)"]
-            df_records = []
-            for date_str, metrics in time_series.items():
-                df_records.append({
-                    "Date": pd.to_datetime(date_str),
-                    "Close": float(metrics["4. close"])
-                })
+                raw_data = response.json()
                 
-            # Organize timeline sequences sequentially
-            hist_df = pd.DataFrame(df_records).sort_values(by="Date").set_index("Date")
-            current_price = hist_df['Close'].iloc[-1]
+                # Check if the API sent back a frequency limitation message
+                if "Information" in raw_data:
+                    st.sidebar.warning(f"⏳ Pacing limit hit. Retrying execution sequence (Attempt {attempt + 1}/3)...")
+                    time.sleep(3.0)  # Spread out requests sparingly (1 per second minimum)
+                    continue
+                    
+                if "Time Series (Daily)" not in raw_data:
+                    return None
+                    
+                # Restructure JSON parameters into an analytical Pandas Dataframe
+                time_series = raw_data["Time Series (Daily)"]
+                df_records = []
+                for date_str, metrics in time_series.items():
+                    df_records.append({
+                        "Date": pd.to_datetime(date_str),
+                        "Close": float(metrics["4. close"])
+                    })
+                    
+                hist_df = pd.DataFrame(df_records).sort_values(by="Date").set_index("Date")
+                current_price = hist_df['Close'].iloc[-1]
+                
+                # Fetch Open-Source Google News Community RSS Footprint
+                social_rss = f"https://google.com{ticker_str}+stock+investing+forum&hl=en-US&gl=US&ceid=US:en"
+                feed = feedparser.parse(social_rss)
+                headlines = [entry.title for entry in feed.entries[:4]]
+                
+                return {
+                    "hist": hist_df,
+                    "current_price": current_price,
+                    "headlines": headlines
+                }
+        except Exception:
+            return None
             
-            # Fetch Open-Source Google News Community RSS Footprint
-            social_rss = f"https://google.com{ticker_str}+stock+investing+forum&hl=en-US&gl=US&ceid=US:en"
-            feed = feedparser.parse(social_rss)
-            headlines = [entry.title for entry in feed.entries[:4]]
-            
-            return {
-                "hist": hist_df,
-                "current_price": current_price,
-                "headlines": headlines
-            }
-    except Exception:
-        return None
-
+    return None
 
 def query_qwen_macro_inference(symbol: str, data: dict) -> dict:
     news_context = "\n- ".join(data['headlines'])
@@ -93,7 +98,7 @@ Return exactly this JSON format:
             if response.status_code == 200:
                 raw_text = response.json()['generated_text'].strip()
                 if "```" in raw_text:
-                    raw_text = raw_text.split("```")[1].replace("json", "").strip()
+                    raw_text = raw_text.split("```").replace("json", "").strip()
                 return json.loads(raw_text)
     except Exception:
         pass
@@ -118,12 +123,12 @@ if run_btn and ticker_input:
         data = fetch_stable_market_data(ticker_input)
         
         if not data:
-            st.error(f"❌ Failed to locate market streams for ticker: '{ticker_input}'. If using the 'demo' key, please use standard test tickers like IBM, AAPL, or AMZN.")
+            st.error(f"❌ Rate limit actively blocked execution or asset spelling is invalid. Alpha Vantage permits 25 requests daily on free keys.")
         else:
             price = data['current_price']
             forecasts = query_qwen_macro_inference(ticker_input, data)
             
-            col1, col2 = st.columns([1, 2])
+            col1, col2 = st.columns()
             
             with col1:
                 st.subheader(f"📊 Corporate Profile: {ticker_input}")
@@ -146,8 +151,8 @@ if run_btn and ticker_input:
                 fig.patch.set_facecolor('#0e1117')
                 ax.set_facecolor('#0e1117')
                 
-                # Plot the historical pricing line safely
-                hist_subset = data['hist'].tail(60)  # Past 60 days
+                # Plot the historical pricing line safely (Past 30 entries)
+                hist_subset = data['hist'].tail(30)
                 ax.plot(hist_subset.index, hist_subset['Close'], label='Historical Daily Close', color='#0ea5e9', linewidth=2.5)
                 
                 last_date = hist_subset.index[-1]
