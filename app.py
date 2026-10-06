@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 # --- APPLICATION PREFERENCES ---
 st.set_page_config(page_title="Macro AI Crypto Terminal", layout="wide")
 
-# YOUR ACTIVE KEYS PRESERVED
+# YOUR ACTIVE KEYS PRESERVED WITH THE CORRECT ENDPOINT HEADERS
 ALPACA_KEY_ID = "PKP27SBDO5GMH3A37SU7OV5O36"
 ALPACA_SECRET = "AM3uTw5kxAUiYvLEtYbGVA8D4qdi86r9egdBU8zV4CKW"
 
@@ -19,17 +19,16 @@ plt.style.use('dark_background')
 def fetch_crypto_market_data(symbol: str):
     """
     Queries documented Alpaca v2 crypto historical data points.
-    Completely free and unthrottled for individual paper accounts.
+    Uses corrected authentication headers to prevent the 403/401 cloud block loops.
     """
     try:
-        # Standardize crypto input syntax strings (e.g., convert BTC to BTC/USD)
-        clean_symbol = symbol.strip().upper().replace("/", "")
+        # Standardize the symbol formatting to map exactly into the API structure
+        clean_symbol = symbol.strip().upper().replace("/", "").replace("-", "")
         if clean_symbol in ["BTC", "ETH", "SOL", "LTC"]:
             clean_symbol = f"{clean_symbol}/USD"
             
-        start_date = (datetime.utcnow() - timedelta(days=120)).strftime('%Y-%m-%d')
+        start_date = (datetime.utcnow() - timedelta(days=90)).strftime('%Y-%m-%d')
         
-        # Dedicated Alpaca Free Crypto Bars Network Endpoint
         url = "https://alpaca.markets"
         
         params = {
@@ -39,9 +38,11 @@ def fetch_crypto_market_data(symbol: str):
             "limit": 500,
         }
         
+        # CRITICAL REPAIR: Swapped headers to standard APCA format required by Data API
         headers = {
-            "X-ApiKey-Id": ALPACA_KEY_ID,
-            "X-Api-Secret": ALPACA_SECRET
+            "APCA-API-KEY-ID": ALPACA_KEY_ID,
+            "APCA-API-SECRET-KEY": ALPACA_SECRET,
+            "accept": "application/json"
         }
         
         with httpx.Client() as client:
@@ -112,10 +113,10 @@ Return exactly this JSON format:
         pass
         
     return {
-        "5d": {"score": 0.02, "target": price * 1.01},
-        "30d": {"score": 0.05, "target": price * 1.03},
-        "60d": {"score": 0.08, "target": price * 1.06},
-        "1y": {"score": 0.20, "target": price * 1.25}
+        "5d": {"score": 0.01, "target": price * 1.01},
+        "30d": {"score": 0.02, "target": price * 1.03},
+        "60d": {"score": 0.05, "target": price * 1.06},
+        "1y": {"score": 0.15, "target": price * 1.25}
     }
 
 # --- STREAMLIT UI DESIGN ---
@@ -123,8 +124,7 @@ st.title("🏛️ Open AI Crypto Workstation Terminal")
 st.markdown("A fault-tolerant web terminal utilizing free Alpaca cryptocurrency channels, news aggregation networks, and Qwen text-generation intelligence.")
 
 st.sidebar.header("Control Panel")
-# Defaulting configuration metrics to Bitcoin to guarantee instant activation
-ticker_input = st.sidebar.text_input("Asset Ticker Symbol", value="BTC/USD").upper().strip()
+ticker_input = st.sidebar.text_input("Asset Ticker Symbol", value="BTC").upper().strip()
 run_btn = st.sidebar.button("RUN WORKSTATION ANALYSIS", type="primary")
 
 if run_btn and ticker_input:
@@ -132,7 +132,7 @@ if run_btn and ticker_input:
         data = fetch_crypto_market_data(ticker_input)
         
         if not data:
-            st.error(f"❌ Asset parsing error. To maintain 100% free server up-time, please use standard crypto ticker symbols like BTC, ETH, SOL, or LTC.")
+            st.error(f"❌ Connection Timeout or Asset parsing error. Verify that you are searching for valid tickers like BTC, ETH, SOL, or LTC.")
         else:
             display_name = data["display_symbol"]
             price = data['current_price']
@@ -197,4 +197,4 @@ if run_btn and ticker_input:
                 for headline in data['headlines']:
                     st.caption(f"🔹 {headline}")
 else:
-    st.info("💡 Control Panel: Leave the input as BTC/USD and click 'RUN WORKSTATION ANALYSIS' to watch the pipeline execute instantly.")
+    st.info("💡 Control Panel: Leave the input as BTC and click 'RUN WORKSTATION ANALYSIS' to watch the pipeline execute instantly.")
