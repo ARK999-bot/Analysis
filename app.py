@@ -146,7 +146,7 @@ Return exactly this JSON format:
             if response.status_code == 200:
                 raw_text = response.json()['generated_text'].strip()
                 if "```" in raw_text:
-                    raw_text = raw_text.split("```")[1].replace("json", "").strip()
+                    raw_text = raw_text.split("```").replace("json", "").strip()
                 return json.loads(raw_text)
     except Exception:
         pass
@@ -223,14 +223,15 @@ if run_btn and ticker_input:
                     d = timeline_df['Date'].iloc[idx]
                     p = timeline_df['Price'].iloc[idx]
                     ax.annotate(f"${p:,.2f}", (d, p), textcoords="offset points", xytext=(0,12), ha='center', fontsize=9, fontweight='bold', color='#ffffff')
-					ax.scatter(last_date, price, color='#34d399', s=150, label='Current Baseline Spot', zorder=6)
+                    ax.scatter(last_date, price, color='#34d399', s=150, label='Current Baseline Spot', zorder=6)
 					ax.set_ylabel("Value (USD)", color='#ffffff')
 					ax.grid(True, color='#1e293b', linestyle=':')
 					ax.legend(loc='upper left', facecolor='#0e1117', edgecolor='#1e293b')
 					plt.xticks(rotation=15)
 					st.pyplot(fig)
+					
 					st.markdown("### 📰 Community Forum Stream Filters")
-				for headline in data['headlines']:
-					st.caption(f"🔹 {headline}")
+					for headline in data['headlines']:
+						st.caption(f"🔹 {headline}")  # Indented by 16 spaces (inside the for-loop)
 else:
-	st.info("💡 Control Menu: Input stock symbols (e.g. NVDA, AAPL) or crypto tokens (e.g. BTC, ETH) above and execute analysis.")
+    st.info("💡 Control Menu: Input stock symbols (e.g. NVDA, AAPL) or crypto tokens (e.g. BTC, ETH) above and execute analysis.")
