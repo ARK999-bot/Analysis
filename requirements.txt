@@ -1,9 +1,3 @@
-yfinance
-feedparser
-httpx
-matplotlib
-pandas
-requests
 feedparser
 httpx
 matplotlib
