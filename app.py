@@ -224,7 +224,7 @@ if run_btn and ticker_input:
                     p = timeline_df['Price'].iloc[idx]
                     ax.annotate(f"${p:,.2f}", (d, p), textcoords="offset points", xytext=(0,12), ha='center', fontsize=9, fontweight='bold', color='#ffffff')
                 
-				ax.scatter(last_date, price, color='#34d399', s=150, label='Current Baseline Spot', zorder=6)
+                ax.scatter(last_date, price, color='#34d399', s=150, label='Current Baseline Spot', zorder=6)
                 ax.set_ylabel("Value (USD)", color='#ffffff')
                 ax.grid(True, color='#1e293b', linestyle=':')
                 ax.legend(loc='upper left', facecolor='#0e1117', edgecolor='#1e293b')
