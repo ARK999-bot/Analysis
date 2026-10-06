@@ -6,13 +6,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 
-# --- OFFICIAL NATIVE SDK IMPORTS FROM DOCUMENTATION ---
-from alpaca.data.historical import CryptoHistoricalDataClient
-from alpaca.data.requests import CryptoBarsRequest
+# --- OFFICIAL NATIVE SDK IMPORTS ---
+from alpaca.data.historical import CryptoHistoricalDataClient, StockHistoricalDataClient
+from alpaca.data.requests import CryptoBarsRequest, StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 
 # --- APPLICATION PREFERENCES ---
-st.set_page_config(page_title="Macro AI Crypto Terminal", layout="wide")
+st.set_page_config(page_title="Macro AI Multi-Asset Terminal", layout="wide")
 
 # YOUR SYSTEM API KEYS PRESERVED
 ALPACA_KEY_ID = "PKP27SBDO5GMH3A37SU7OV5O36"
@@ -21,47 +21,53 @@ ALPACA_SECRET = "AM3uTw5kxAUiYvLEtYbGVA8D4qdi86r9egdBU8zV4CKW"
 HF_API_URL = "https://huggingface.co"
 plt.style.use('dark_background')
 
-def fetch_crypto_market_data(symbol: str):
+def fetch_market_data_router(symbol: str):
     """
-    Queries documented Alpaca-py SDK components for asset price histories.
-    Guarantees 100% stable, authenticated connections.
+    Intelligently routes requests between Stock and Crypto clients
+    to dynamically support symbols like NVDA and BTC simultaneously.
     """
     try:
-        # Standardize formatting to match documentation rules (e.g. BTC/USD)
-        clean_symbol = symbol.strip().upper().replace("-", "")
-        if clean_symbol in ["BTC", "ETH", "SOL", "LTC"]:
-            clean_symbol = f"{clean_symbol}/USD"
-            
+        input_str = symbol.strip().upper().replace("-", "")
+        is_crypto = input_str in ["BTC", "ETH", "SOL", "LTC"] or "/" in input_str
+        
         start_date = datetime.utcnow() - timedelta(days=90)
-        
-        # SDK FIX: Initializing the official client wrapper using your keys
-        client = CryptoHistoricalDataClient(api_key=ALPACA_KEY_ID, secret_key=ALPACA_SECRET)
-        
-        # SDK FIX: Formatting query requests using the official structural parameters
-        request_params = CryptoBarsRequest(
-            symbol_or_symbols=clean_symbol,
-            timeframe=TimeFrame.Day,
-            start=start_date,
-            end=datetime.utcnow()
-        )
-        
-        # Execute query retrieval
-        bars = client.get_crypto_bars(request_params)
-        
-        # SDK FIX: Converting to pandas MultiIndex dataframe using native property .df
+        end_date = datetime.utcnow()
+
+        if is_crypto:
+            # 1. CRYPTO PIPELINE ROUTING
+            clean_symbol = f"{input_str}/USD" if "/" not in input_str else input_str
+            client = CryptoHistoricalDataClient(api_key=ALPACA_KEY_ID, secret_key=ALPACA_SECRET)
+            request_params = CryptoBarsRequest(
+                symbol_or_symbols=clean_symbol,
+                timeframe=TimeFrame.Day,
+                start=start_date,
+                end=end_date
+            )
+            bars = client.get_crypto_bars(request_params)
+        else:
+            # 2. STOCK PIPELINE ROUTING (FIX FOR NVDA/AAPL)
+            clean_symbol = input_str
+            client = StockHistoricalDataClient(api_key=ALPACA_KEY_ID, secret_key=ALPACA_SECRET)
+            request_params = StockBarsRequest(
+                symbol_or_symbols=clean_symbol,
+                timeframe=TimeFrame.Day,
+                start=start_date,
+                end=end_date,
+                feed="iex" # Default clean free IEX cloud provider feed channel
+            )
+            bars = client.get_stock_bars(request_params)
+
         if bars is None or len(bars.data) == 0:
             return None
             
         hist_df = bars.df
-        
-        # Reset MultiIndex schema safely for charting
-        hist_df = hist_df.reset_index(level=0) # Un-stack symbol keys
+        hist_df = hist_df.reset_index(level=0) # Flattens multi-index rows for charting
         hist_df = hist_df.sort_index()
         
         current_price = float(hist_df['close'].iloc[-1])
         
-        # Fetch community RSS footprint
-        social_rss = f"https://google.com{clean_symbol.replace('/','+')}+crypto+investing&hl=en-US&gl=US&ceid=US:en"
+        # Pull community RSS sentiment footprint
+        social_rss = f"https://google.com{clean_symbol.replace('/','+')}+stock+market+investing&hl=en-US&gl=US&ceid=US:en"
         feed = feedparser.parse(social_rss)
         headlines = [entry.title for entry in feed.entries[:4]]
         
@@ -69,10 +75,11 @@ def fetch_crypto_market_data(symbol: str):
             "hist": hist_df,
             "current_price": current_price,
             "headlines": headlines,
-            "display_symbol": clean_symbol
+            "display_symbol": clean_symbol,
+            "color": "#f59e0b" if is_crypto else "#0ea5e9"
         }
     except Exception as e:
-        st.sidebar.error(f"Engine Log: {str(e)}")
+        st.sidebar.error(f"Engine Log Failure Details: {str(e)}")
         return None
 
 def query_qwen_macro_inference(symbol: str, data: dict) -> dict:
@@ -80,7 +87,7 @@ def query_qwen_macro_inference(symbol: str, data: dict) -> dict:
     price = data['current_price']
     
     prompt = f"""<|im_start|>system
-You are an advanced digital asset macro hedge fund algorithm. Return a raw JSON forecast object without markdown blocks like ```json or text descriptions.<|im_end|>\n<|im_start|>user
+You are a senior macro hedge fund algorithm. Return a raw JSON forecast object without markdown blocks like ```json or text descriptions.<|im_end|>\n<|im_start|>user
 Asset Profile: {symbol}
 Current Price: ${price:.2f}
 Sentiment Data:
@@ -114,19 +121,19 @@ Return exactly this JSON format:
     }
 
 # --- STREAMLIT UI DESIGN ---
-st.title("🏛️ Open AI Crypto Workstation Terminal")
-st.markdown("A premium financial web terminal using official native Alpaca-py SDK clients and Qwen AI intelligence modules.")
+st.title("🏛️ Open AI Multi-Asset Workstation Terminal")
+st.markdown("A premium financial web terminal using official native Alpaca-py SDK components and Qwen AI intelligence modules.")
 
 st.sidebar.header("Control Panel")
-ticker_input = st.sidebar.text_input("Asset Ticker Symbol", value="BTC").upper().strip()
+ticker_input = st.sidebar.text_input("Asset Ticker Symbol", value="NVDA").upper().strip()
 run_btn = st.sidebar.button("RUN WORKSTATION ANALYSIS", type="primary")
 
 if run_btn and ticker_input:
-    with st.spinner(f"Extracting crypto database arrays for {ticker_input}..."):
-        data = fetch_crypto_market_data(ticker_input)
+    with st.spinner(f"Extracting server database arrays for {ticker_input}..."):
+        data = fetch_market_data_router(ticker_input)
         
         if not data:
-            st.error(f"❌ Verification Failure: Failed to parse historical bars profile for '{ticker_input}'.")
+            st.error(f"❌ Verification Failure: Failed to parse historical bars profile for '{ticker_input}'. Check spelling configurations.")
         else:
             display_name = data["display_symbol"]
             price = data['current_price']
@@ -135,7 +142,7 @@ if run_btn and ticker_input:
             col1, col2 = st.columns()
             
             with col1:
-                st.subheader(f"📊 Digital Asset Profile: {display_name}")
+                st.subheader(f"📊 Market Profile: {display_name}")
                 st.metric(label="Current Market Value", value=f"${price:,.2f}")
                 
                 st.markdown("### Qwen Horizon Target Index")
@@ -156,8 +163,7 @@ if run_btn and ticker_input:
                 ax.set_facecolor('#0e1117')
                 
                 hist_subset = data['hist'].tail(45)
-                # Note: Official dataframe columns from SDK are completely lowercase ('close')
-                ax.plot(hist_subset.index, hist_subset['close'], label='Historical Close', color='#f59e0b', linewidth=2.5)
+                ax.plot(hist_subset.index, hist_subset['close'], label='Historical Close', color=data["color"], linewidth=2.5)
                 
                 last_date = hist_subset.index[-1]
                 mappings = {"5d": 5, "30d": 30, "60d": 60, "1y": 365}
@@ -192,4 +198,4 @@ if run_btn and ticker_input:
                 for headline in data['headlines']:
                     st.caption(f"🔹 {headline}")
 else:
-    st.info("💡 Control Panel: Leave the input as BTC and click 'RUN WORKSTATION ANALYSIS' to watch the pipeline execute instantly.")
+    st.info("💡 Control Panel: Input stock symbols (e.g. NVDA, AAPL) or crypto tokens (e.g. BTC, ETH) above and execute analysis.")
