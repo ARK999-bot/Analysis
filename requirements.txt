@@ -3,3 +3,5 @@ feedparser
 httpx
 matplotlib
 pandas
+requests
+yfinance
