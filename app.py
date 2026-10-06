@@ -1,5 +1,4 @@
 import streamlit as st
-import yfinance as yf
 import feedparser
 import httpx
 import json
@@ -7,86 +6,68 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 
-# --- APPLICATION SETTINGS ---
+# --- APPLICATION PREFERENCES SETTINGS ---
 st.set_page_config(page_title="Macro AI Financial Workstation", layout="wide")
 
-# Hugging Face Serverless URL for the Qwen Model (Free Tier API)
+# Replace this string with the API key you generated from Alpha Vantage
+ALPHA_VANTAGE_KEY = "demo"  # Replace "demo" with your real key to analyze assets other than IBM/AAPL/AMZN
 HF_API_URL = "https://huggingface.co"
 
-# Clean dark theme configuration for visualizations
 plt.style.use('dark_background')
 
-# --- DATA PROCESSING BACKEND ---
-def fetch_comprehensive_financials(symbol: str):
+# --- NATIVE STABLE DATA API PROCESSING ENGINE ---
+def fetch_stable_market_data(symbol: str):
+    """
+    Retrieves historical price matrices cleanly from Alpha Vantage developer endpoints
+    to completely bypass Yahoo Cloud IP restriction blocks.
+    """
     try:
         ticker_str = symbol.strip().upper()
+        url = f"https://alphavantage.co{ticker_str}&outputsize=full&apikey=L187MLXWUVYFBBV8"
         
-        # Maintain a reliable individual user session profile
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        })
-        
-        ticker = yf.Ticker(ticker_str, session=session)
-        
-        # 1. Capture Long-Term Price Matrix History (Highly reliable endpoint)
-        hist = ticker.history(period="2y", interval="1d")
-        if hist.empty:
-            return None
-        current_price = hist['Close'].iloc[-1]
-        
-        # Define clean, safe fallback values for corporate ratios
-        fundamentals = {
-            "Trailing P/E": "N/A",
-            "Forward P/E": "N/A",
-            "Profit Margin (%)": "N/A",
-            "Return on Equity (%)": "N/A",
-            "Debt to Equity": "N/A",
-            "Wall St 1y Target": current_price
-        }
-        
-        # 2. Extract Structural Accounting Metrics (Safely sandboxed)
-        try:
-            info = ticker.info
-            if info and isinstance(info, dict):
-                fundamentals["Trailing P/E"] = info.get("trailingPE", "N/A")
-                fundamentals["Forward P/E"] = info.get("forwardPE", "N/A")
-                fundamentals["Profit Margin (%)"] = round(info.get("profitMargins", 0.0) * 100, 2) if info.get("profitMargins") else "N/A"
-                fundamentals["Return on Equity (%)"] = round(info.get("returnOnEquity", 0.0) * 100, 2) if info.get("returnOnEquity") else "N/A"
-                fundamentals["Debt to Equity"] = info.get("debtToEquity", "N/A")
-                fundamentals["Wall St 1y Target"] = info.get("targetMeanPrice", current_price)
-        except Exception:
-            # If Yahoo limits the server IP for metrics, pass safely so the chart still generates!
-            pass
-        
-        # 3. Pull News and Public Forum Sentiment
-        social_rss = f"https://google.com{ticker_str}+stock+investing+forum&hl=en-US&gl=US&ceid=US:en"
-        feed = feedparser.parse(social_rss)
-        headlines = [entry.title for entry in feed.entries[:4]]
-        
-        return {
-            "hist": hist,
-            "current_price": current_price,
-            "fundamentals": fundamentals,
-            "headlines": headlines
-        }
+        with httpx.Client() as client:
+            response = client.get(url, timeout=15.0)
+            if response.status_code != 200:
+                return None
+            
+            raw_data = response.json()
+            # Catch Alpha Vantage API quota or tracking warning flags safely
+            if "Time Series (Daily)" not in raw_data:
+                return None
+                
+            # Restructure JSON elements into an analytical Pandas Dataframe
+            time_series = raw_data["Time Series (Daily)"]
+            df_records = []
+            for date_str, metrics in time_series.items():
+                df_records.append({
+                    "Date": pd.to_datetime(date_str),
+                    "Close": float(metrics["4. close"])
+                })
+                
+            hist_df = pd.DataFrame(df_records).sort_values(by="Date").set_index("Date")
+            current_price = hist_df['Close'].iloc[-1]
+            
+            # Fetch Open-Source Google News Community RSS Footprint
+            social_rss = f"https://google.com{ticker_str}+stock+investing+forum&hl=en-US&gl=US&ceid=US:en"
+            feed = feedparser.parse(social_rss)
+            headlines = [entry.title for entry in feed.entries[:4]]
+            
+            return {
+                "hist": hist_df,
+                "current_price": current_price,
+                "headlines": headlines
+            }
     except Exception:
         return None
 
 def query_qwen_macro_inference(symbol: str, data: dict) -> dict:
     news_context = "\n- ".join(data['headlines'])
-    f = data['fundamentals']
     price = data['current_price']
     
     prompt = f"""<|im_start|>system
 You are a senior hedge fund macro strategist. Return a raw JSON forecast object without markdown blocks like ```json or text descriptions.<|im_end|>\n<|im_start|>user
 Asset Profile: {symbol}
 Current Market Price: ${price:.2f}
-Corporate Fundamental Indicators:
-- Trailing P/E: {f['Trailing P/E']} | Forward P/E: {f['Forward P/E']}
-- Net Profit Margin: {f['Profit Margin (%)']}% | Return on Equity: {f['Return on Equity (%)']}%
-- Wall Street Consensus 1y Target Price: ${f['Wall St 1y Target']}
 
 Public Sentiment Feed:
 - {news_context}
@@ -97,7 +78,7 @@ Return exactly this JSON format:
     "5d": {{"score": 0.12, "target": {price * 1.01:.2f}}},
     "30d": {{"score": 0.25, "target": {price * 1.03:.2f}}},
     "60d": {{"score": -0.05, "target": {price * 0.99:.2f}}},
-    "1y": {{"score": 0.45, "target": {f['Wall St 1y Target']:.2f}}}
+    "1y": {{"score": 0.45, "target": {price * 1.12:.2f}}}
 }}<|im_end|>\n<|im_start|>assistant\n"""
     
     try:
@@ -113,25 +94,25 @@ Return exactly this JSON format:
         
     return {
         "5d": {"score": 0.01, "target": price * 1.005},
-        "30d": {"score": 0.03, "target": price * 1.015},
-        "60d": {"score": 0.05, "target": price * 1.025},
-        "1y": {"score": 0.10, "target": f['Wall St 1y Target'] if f['Wall St 1y Target'] != 'N/A' else price}
+        "30d": {"score": 0.02, "target": price * 1.012},
+        "60d": {"score": 0.04, "target": price * 1.025},
+        "1y": {"score": 0.12, "target": price * 1.085}
     }
 
-# --- STREAMLIT UI DESIGN ---
+# --- STREAMLIT UI DISPLAY GRAPHICS ---
 st.title("🏛️ Open AI Multi-Horizon Market Terminal")
-st.markdown("An advanced quantitative analysis dashboard combining core company accounting metrics, web sentiment data, and Qwen long-term forecast modeling.")
+st.markdown("An advanced macro visualization station combining official developer API channels, web sentiment parsing, and Qwen prediction engines.")
 
 st.sidebar.header("Control Panel")
-ticker_input = st.sidebar.text_input("Stock Ticker Symbol", value="MSFT").upper().strip()
+ticker_input = st.sidebar.text_input("Stock Ticker Symbol", value="AMZN").upper().strip()
 run_btn = st.sidebar.button("RUN WORKSTATION ANALYSIS", type="primary")
 
 if run_btn and ticker_input:
-    with st.spinner(f"Synchronizing global data pipelines for {ticker_input}..."):
-        data = fetch_comprehensive_financials(ticker_input)
+    with st.spinner(f"Acquiring documented server streams for {ticker_input}..."):
+        data = fetch_stable_market_data(ticker_input)
         
         if not data:
-            st.error(f"❌ Failed to locate market streams for ticker: '{ticker_input}'. Please check spelling.")
+            st.error(f"❌ Failed to locate market streams for ticker: '{ticker_input}'. If using the 'demo' key, please use standard test tickers like IBM, AAPL, or AMZN.")
         else:
             price = data['current_price']
             forecasts = query_qwen_macro_inference(ticker_input, data)
@@ -141,10 +122,6 @@ if run_btn and ticker_input:
             with col1:
                 st.subheader(f"📊 Corporate Profile: {ticker_input}")
                 st.metric(label="Current Spot Price", value=f"${price:.2f}")
-                
-                st.markdown("### Financial Ratios")
-                fund_df = pd.DataFrame(data['fundamentals'].items(), columns=["Metric", "Value"])
-                st.table(fund_df)
                 
                 st.markdown("### Qwen Horizon Target Index")
                 horizon_data = []
@@ -163,10 +140,11 @@ if run_btn and ticker_input:
                 fig.patch.set_facecolor('#0e1117')
                 ax.set_facecolor('#0e1117')
                 
-                hist_weekly = data['hist'].resample('W').last().tail(52)
-                ax.plot(hist_weekly.index, hist_weekly['Close'], label='Historical 52W Trend Line', color='#0ea5e9', linewidth=2.5)
+                # Plot the historical pricing line safely
+                hist_subset = data['hist'].tail(60)  # Past 60 days
+                ax.plot(hist_subset.index, hist_subset['Close'], label='Historical Daily Close', color='#0ea5e9', linewidth=2.5)
                 
-                last_date = hist_weekly.index[-1]
+                last_date = hist_subset.index[-1]
                 mappings = {"5d": 5, "30d": 30, "60d": 60, "1y": 365}
                 
                 future_dates = [last_date]
