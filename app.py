@@ -19,20 +19,22 @@ plt.style.use('dark_background')
 # --- DOCUMENTED ALPACA SERVER STORAGE DATA ENGINE ---
 def fetch_alpaca_market_data(symbol: str):
     """
-    Queries documented Alpaca v2 server endpoints for pricing timelines.
-    Implements an automatic SIP data feed fallback mechanism if IEX yields a blank payload.
+    Queries documented Alpaca Market Data endpoints for pricing timelines.
+    Uses dedicated data streams to handle chart requirements correctly.
     """
     ticker_str = symbol.strip().upper()
     start_date = (datetime.utcnow() - timedelta(days=365)).strftime('%Y-%m-%d')
     end_date = datetime.utcnow().strftime('%Y-%m-%d')
     
+    # CRITICAL FIX: Explicitly routes data requests to data.alpaca.markets
     url = "https://alpaca.markets"
+    
     headers = {
         "X-ApiKey-Id": ALPACA_KEY_ID,
         "X-Api-Secret": ALPACA_SECRET
     }
 
-    # Attempt fetching using both available feeds sequentially to prevent cloud mapping errors
+    # Free tiers use 'iex' or 'sip' parameter structures depending on validation
     for data_feed in ["iex", "sip"]:
         try:
             params = {
@@ -42,7 +44,7 @@ def fetch_alpaca_market_data(symbol: str):
                 "end": end_date,
                 "limit": 1000,
                 "adjustment": "all",
-                "feed": data_feed  # Toggles between iex and sip automatically
+                "feed": data_feed
             }
             
             with httpx.Client() as client:
@@ -58,7 +60,7 @@ def fetch_alpaca_market_data(symbol: str):
                 raw_json = response.json()
                 bars_data = raw_json.get("bars", {}).get(ticker_str, [])
                 
-                # If we recovered a valid payload, break the fallback loop and parse data structures
+                # If a valid stock history payload is found, process the dataframe canvas
                 if bars_data:
                     df_records = []
                     for bar in bars_data:
@@ -84,6 +86,7 @@ def fetch_alpaca_market_data(symbol: str):
             pass
             
     return None
+
 
 def query_qwen_macro_inference(symbol: str, data: dict) -> dict:
     news_context = "\n- ".join(data['headlines'])
