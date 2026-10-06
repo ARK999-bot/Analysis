@@ -149,6 +149,7 @@ st.sidebar.header("Control Panel")
 ticker_input = st.sidebar.text_input("Asset Ticker Symbol", value="NVDA").upper().strip()
 run_btn = st.sidebar.button("RUN WORKSTATION ANALYSIS", type="primary")
 
+# --- TRACK CORRESPONDING SPACING BLOCKS AT THE BOTTOM OF YOUR SCRIPT ---
 if run_btn and ticker_input:
     with st.spinner(f"Extracting server database arrays for {ticker_input}..."):
         data = fetch_market_data_router(ticker_input)
@@ -156,6 +157,7 @@ if run_btn and ticker_input:
         if not data:
             st.error(f"❌ Verification Failure: Failed to parse historical bars profile for '{ticker_input}'. Check spelling configurations.")
         else:
+            # THIS IS THE SPACE REPAIR PROFILE (Line 221 and below must be indented)
             display_name = data["display_symbol"]
             price = data['current_price']
             forecasts = query_qwen_macro_inference(display_name, data)
@@ -219,3 +221,4 @@ if run_btn and ticker_input:
                 for headline in data['headlines']:
                     st.caption(f"🔹 {headline}")
 else:
+    st.info("💡 Control Panel: Input stock symbols (e.g. NVDA, AAPL) or crypto tokens (e.g. BTC, ETH) above and execute analysis.")
