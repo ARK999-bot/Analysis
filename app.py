@@ -177,7 +177,7 @@ if run_btn and ticker_input:
             price = data['current_price']
             forecasts = query_qwen_macro_inference(display_name, data)
             
-            col1, col2 = st.columns()
+            col1, col2 = st.columns(2)
             
             with col1:
                 st.subheader(f"📊 Market Profile: {display_name}")
