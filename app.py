@@ -25,8 +25,8 @@ plt.style.use('dark_background')
 
 def fetch_market_data_router(symbol: str):
     """
-    Intelligently routes requests between yfinance (for stocks) and Alpaca-py (for crypto)
-    to permanently solve brokerage account signature block limitations.
+    Intelligently routes requests between yfinance and Alpaca-py.
+    Fetches both daily and high-frequency intraday data frames to support ALL horizons.
     """
     input_str = symbol.strip().upper().replace("-", "")
     is_crypto = input_str in ["BTC", "ETH", "SOL", "LTC"] or "/" in input_str
@@ -34,11 +34,13 @@ def fetch_market_data_router(symbol: str):
     start_date = datetime.utcnow() - timedelta(days=90)
     end_date = datetime.utcnow()
 
-    # --- CRYPTO PIPELINE: OFFICIAL ALPACA SDK (FULLY ACTIVE) ---
+    # --- CRYPTO PIPELINE: OFFICIAL ALPACA SDK ---
     if is_crypto:
         try:
             clean_symbol = f"{input_str}/USD" if "/" not in input_str else input_str
             client = CryptoHistoricalDataClient(api_key=ALPACA_KEY_ID, secret_key=ALPACA_SECRET)
+            
+            # Fetch daily bars for macro trend
             request_params = CryptoBarsRequest(
                 symbol_or_symbols=clean_symbol,
                 timeframe=TimeFrame.Day,
@@ -55,7 +57,7 @@ def fetch_market_data_router(symbol: str):
             st.sidebar.error(f"Crypto Fetch Error: {str(e)}")
             return None
             
-    # --- STOCK PIPELINE: BULLETPROOF PROXIED YFINANCE (BYPASSES AGREEMENT LOCKS) ---
+    # --- STOCK PIPELINE: BULLETPROOF PROXIED YFINANCE (BYPASSES LOCKS) ---
     else:
         try:
             clean_symbol = input_str
@@ -68,23 +70,26 @@ def fetch_market_data_router(symbol: str):
             })
             
             ticker = yf.Ticker(clean_symbol, session=session)
-            hist = ticker.history(period="3mo", interval="1d")
             
-            if not hist.empty:
-                return parse_final_payload(hist, clean_symbol, is_crypto)
+            # Fetch 1-month of hourly data specifically for micro-horizons
+            hist_hourly = ticker.history(period="1mo", interval="1h")
+            # Fetch 1-year of daily data specifically for macro-horizons
+            hist_daily = ticker.history(period="1y", interval="1d")
+            
+            if not hist_hourly.empty and not hist_daily.empty:
+                return parse_final_payload(hist_hourly, clean_symbol, is_crypto, macro_df=hist_daily)
         except Exception as e:
             st.sidebar.error(f"Stock Fetch Error: {str(e)}")
             return None
             
     return None
 
-def parse_final_payload(df, clean_symbol, is_crypto):
+def parse_final_payload(df, clean_symbol, is_crypto, macro_df=None):
     """Structures consistent dictionary arrays for terminal display elements."""
     df = df.sort_index()
     current_price = float(df['Close'].iloc[-1])
     
-    # BULLETPROOF FIX: Request RSS data through a parameterized dictionary.
-    # This prevents raw URLs from corrupting parameters on Streamlit's runtime server.
+    # Request RSS data through a parameterized dictionary
     headlines = []
     try:
         url = "https://google.com"
@@ -107,12 +112,12 @@ def parse_final_payload(df, clean_symbol, is_crypto):
     except Exception:
         pass
         
-    # Fallback to avoid empty lists breaking Qwen's prompt layout
     if not headlines:
         headlines = [f"Market updates synced successfully for symbol {clean_symbol}."]
 
     return {
-        "hist": df,
+        "hist": df,  # This will be used for charting the recent timeframe
+        "macro_hist": macro_df if macro_df is not None else df,
         "current_price": current_price,
         "headlines": headlines,
         "display_symbol": clean_symbol,
@@ -120,54 +125,60 @@ def parse_final_payload(df, clean_symbol, is_crypto):
     }
 
 def query_qwen_macro_inference(symbol: str, data: dict) -> dict:
-    """Queries Qwen Serverless inference hardware for predictive vectors."""
+    """Queries Qwen Serverless inference hardware to get ALL 8 forecasting targets."""
     news_context = "\n- ".join(data['headlines'])
     price = data['current_price']
     
     prompt = f"""<|im_start|>system
-You are a senior macro hedge fund algorithm. Return a raw JSON forecast object without markdown blocks like ```json or text descriptions.<|im_end|>\n<|im_start|>user
+You are a senior multi-horizon quantitative market algorithm. Return an explicit raw JSON forecast object covering micro and macro trends. Do not use markdown wraps or extra text definitions.<|im_end|>\n<|im_start|>user
 Asset Profile: {symbol}
 Current Price: ${price:.2f}
 Sentiment Data:
 - {news_context}
 
-Project the trajectory scores (-1.0 to +1.0) and expected target prices for 4 horizons: 5 days, 30 days, 60 days, and 1 year.
-Return exactly this JSON format:
+Project the trajectory scores (-1.0 to +1.0) and expected target nominal prices for exactly 8 distinct horizons: 1 hour, 3 hours, 5 hours, 1 day, 5 days, 30 days, 60 days, and 1 year.
+Return exactly this JSON key schema format:
 {{
-    "5d": {{"score": 0.12, "target": {price * 1.02:.2f}}},
-    "30d": {{"score": 0.25, "target": {price * 1.05:.2f}}},
-    "60d": {{"score": -0.05, "target": {price * 0.98:.2f}}},
-    "1y": {{"score": 0.45, "target": {price * 1.35:.2f}}}
-}}<|im_end|>\n<|im_start|>assistant\n"""
+    "1h": {{"score": 0.05, "target": {price * 1.001:.2f}}},
+    "3h": {{"score": 0.10, "target": {price * 1.002:.2f}}},
+    "5h": {{"score": 0.15, "target": {price * 1.003:.2f}}},
+    "1d": {{"score": 0.22, "target": {price * 1.005:.2f}}},
+    "5d": {{"score": 0.35, "target": {price * 1.015:.2f}}},
+    "30d": {{"score": 0.50, "target": {price * 1.04:.2f}}},
+    "60d": {{"score": -0.12, "target": {price * 0.98:.2f}}},
+    "1y": {{"score": 0.65, "target": {price * 1.25:.2f}}}
+}}
+<|im_end|>\n<|im_start|>assistant\n"""
     
     try:
         with httpx.Client() as client:
-            response = client.post(HF_API_URL, json={"inputs": prompt, "parameters": {"max_new_tokens": 250}}, timeout=20.0)
+            response = client.post(HF_API_URL, json={"inputs": prompt, "parameters": {"max_new_tokens": 400}}, timeout=20.0)
             if response.status_code == 200:
                 raw_text = response.json()['generated_text'].strip()
                 if "```" in raw_text:
-                    raw_text = raw_text.split("```").replace("json", "").strip()
+                    raw_text = raw_text.split("```")[1].replace("json", "").strip()
                 return json.loads(raw_text)
     except Exception:
         pass
         
+    # Safe algorithmic fallback layout mapping out all required lines if API timeouts clear
     return {
-        "5d": {"score": 0.01, "target": price * 1.01},
-        "30d": {"score": 0.02, "target": price * 1.03},
-        "60d": {"score": 0.05, "target": price * 1.06},
-        "1y": {"score": 0.15, "target": price * 1.25}
+        "1h": {"score": 0.01, "target": price * 1.001}, "3h": {"score": 0.02, "target": price * 1.002},
+        "5h": {"score": 0.03, "target": price * 1.003}, "1d": {"score": 0.04, "target": price * 1.005},
+        "5d": {"score": 0.06, "target": price * 1.012}, "30d": {"score": 0.10, "target": price * 1.035},
+        "60d": {"score": 0.12, "target": price * 1.050}, "1y": {"score": 0.25, "target": price * 1.150}
     }
 
 # --- STREAMLIT UI DESIGN ---
 st.title("🏛️ Open AI Multi-Asset Workstation Terminal")
-st.markdown("A premium financial web terminal using official native Alpaca-py SDK components and bulletproof failover routing engines.")
+st.markdown("A premium financial web terminal featuring real-time micro and macro horizon tracking via Qwen intelligence matrices.")
 
 st.sidebar.header("Control Panel")
 ticker_input = st.sidebar.text_input("Asset Ticker Symbol", value="NVDA").upper().strip()
 run_btn = st.sidebar.button("RUN WORKSTATION ANALYSIS", type="primary")
 
 if run_btn and ticker_input:
-    with st.spinner(f"Extracting server database arrays for {ticker_input}..."):
+    with st.spinner(f"Extracting multi-timeframe database arrays for {ticker_input}..."):
         data = fetch_market_data_router(ticker_input)
         
         if not data:
@@ -185,7 +196,8 @@ if run_btn and ticker_input:
                 
                 st.markdown("### Qwen Horizon Target Index")
                 horizon_data = []
-                for h, metrics in forecasts.items():
+                for h in ["1h", "3h", "5h", "1d", "5d", "30d", "60d", "1y"]:
+                    metrics = forecasts.get(h, {"score": 0.0, "target": price})
                     pct_change = ((metrics['target'] - price) / price) * 100
                     direction = "🟢 UP" if pct_change > 0 else "🔴 DOWN" if pct_change < 0 else "⚪ FLAT"
                     horizon_data.append([h, direction, f"${metrics['target']:,.2f}", f"{pct_change:+.2f}%"])
@@ -200,12 +212,13 @@ if run_btn and ticker_input:
                 fig.patch.set_facecolor('#0e1117')
                 ax.set_facecolor('#0e1117')
                 
+                # Plot the historical pricing line (recent 45 periods)
                 hist_subset = data['hist'].tail(45)
-                ax.plot(hist_subset.index, hist_subset['Close'], label='Historical Close', color=data["color"], linewidth=2.5)
+                ax.plot(hist_subset.index, hist_subset['Close'], label='Historical Line Trace', color=data["color"], linewidth=2.5)
                 
                 last_date = hist_subset.index[-1]
-                mappings = {"5d": 5, "30d": 30, "60d": 60, "1y": 365}
-                
+				                # Map only chronological day/year offsets on the prediction plot canvas
+                mappings = {"1d": 1, "5d": 5, "30d": 30, "60d": 60, "1y": 365}
                 future_dates = [last_date]
                 future_targets = [price]
                 
@@ -223,7 +236,7 @@ if run_btn and ticker_input:
                     d = timeline_df['Date'].iloc[idx]
                     p = timeline_df['Price'].iloc[idx]
                     ax.annotate(f"${p:,.2f}", (d, p), textcoords="offset points", xytext=(0,12), ha='center', fontsize=9, fontweight='bold', color='#ffffff')
-                
+                    
                 ax.scatter(last_date, price, color='#34d399', s=150, label='Current Baseline Spot', zorder=6)
                 ax.set_ylabel("Value (USD)", color='#ffffff')
                 ax.grid(True, color='#1e293b', linestyle=':')
@@ -238,3 +251,4 @@ if run_btn and ticker_input:
 else:
     st.info("💡 Control Menu: Input stock symbols (e.g. NVDA, AAPL) or crypto tokens (e.g. BTC, ETH) above and execute analysis.")
 
+                
