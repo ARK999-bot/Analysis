@@ -1,9 +1,6 @@
-import streamlit as st
-import yfinance as yf
-import feedparser
-import httpx
-import json
-import pandas as pd
-import matplotlib.pyplot as plt
-import requests  # <-- ADD THIS IMPORT
-from datetime import datetime, timedelta
+yfinance
+feedparser
+httpx
+matplotlib
+pandas
+requests
