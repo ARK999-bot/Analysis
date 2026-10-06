@@ -2,74 +2,90 @@ import streamlit as st
 import feedparser
 import httpx
 import json
-import time
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 
-# --- APPLICATION PREFERENCES ---
+# --- APPLICATION ENVIRONMENT PREFERENCES ---
 st.set_page_config(page_title="Macro AI Financial Workstation", layout="wide")
 
-# HARDCODED ACTIVE KEY FROM THE PROVIDED URL
-ALPHA_VANTAGE_KEY = "L187MLXWUVYFBBV8"
-HF_API_URL = "https://huggingface.co"
+# PASTE YOUR UNLIMITED FREE ALPACA KEYS HERE (DO NOT KEEP CURLY BRACKETS)
+ALPACA_KEY_ID = "PKP27SBDO5GMH3A37SU7OV5O36"
+ALPACA_SECRET = "AM3uTw5kxAUiYvLEtYbGVA8D4qdi86r9egdBU8zV4CKW"
 
+HF_API_URL = "https://huggingface.co"
 plt.style.use('dark_background')
 
-# --- HARDENED API PROCESSING ENGINE ---
-def fetch_stable_market_data(symbol: str):
+# --- DOCUMENTED ALPACA SERVER STORAGE DATA ENGINE ---
+def fetch_alpaca_market_data(symbol: str):
     """
-    Retrieves daily history directly from Alpha Vantage using your explicit key.
-    Includes an automatic retry mechanism to bypass per-second burst limits.
+    Queries documented Alpaca v2 server endpoints for pricing timelines.
+    Provides 200 calls/min completely free, entirely immune to cloud IP blocks.
     """
-    ticker_str = symbol.strip().upper()
-    url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={ticker_str}&outputsize=compact&apikey={ALPHA_VANTAGE_KEY}"
-    
-    # Allow up to 3 automated pacing retries if a limit message triggers
-    for attempt in range(3):
-        try:
-            with httpx.Client() as client:
-                response = client.get(url, timeout=15.0)
-                if response.status_code != 200:
-                    return None
-                
-                raw_data = response.json()
-                
-                # Check if the API sent back a frequency limitation message
-                if "Information" in raw_data:
-                    st.sidebar.warning(f"⏳ Pacing limit hit. Retrying execution sequence (Attempt {attempt + 1}/3)...")
-                    time.sleep(3.0)  # Spread out requests sparingly (1 per second minimum)
-                    continue
-                    
-                if "Time Series (Daily)" not in raw_data:
-                    return None
-                    
-                # Restructure JSON parameters into an analytical Pandas Dataframe
-                time_series = raw_data["Time Series (Daily)"]
-                df_records = []
-                for date_str, metrics in time_series.items():
-                    df_records.append({
-                        "Date": pd.to_datetime(date_str),
-                        "Close": float(metrics["4. close"])
-                    })
-                    
-                hist_df = pd.DataFrame(df_records).sort_values(by="Date").set_index("Date")
-                current_price = hist_df['Close'].iloc[-1]
-                
-                # Fetch Open-Source Google News Community RSS Footprint
-                social_rss = f"https://google.com{ticker_str}+stock+investing+forum&hl=en-US&gl=US&ceid=US:en"
-                feed = feedparser.parse(social_rss)
-                headlines = [entry.title for entry in feed.entries[:4]]
-                
-                return {
-                    "hist": hist_df,
-                    "current_price": current_price,
-                    "headlines": headlines
-                }
-        except Exception:
-            return None
+    try:
+        ticker_str = symbol.strip().upper()
+        
+        # Define 1-year timestamp buffers to calculate daily aggregates
+        start_date = (datetime.utcnow() - timedelta(days=365)).strftime('%Y-%m-%d')
+        end_date = datetime.utcnow().strftime('%Y-%m-%d')
+        
+        # Alpaca Native v2 Stock Bars endpoint
+        url = "https://data.alpaca.markets/v2/stocks/bars"
+        params = {
+            "symbols": ticker_str,
+            "timeframe": "1D",
+            "start": start_date,
+            "end": end_date,
+            "limit": 1000,
+            "adjustment": "all",
+            "feed": "iex"  # Clean free-tier data pipeline feed channel
+        }
+        
+        # Standard structural header authorization protocols
+        headers = {
+            "X-ApiKey-Id": ALPACA_KEY_ID,
+            "X-Api-Secret": ALPACA_SECRET
+        }
+        
+        with httpx.Client() as client:
+            response = client.get(url, params=params, headers=headers, timeout=15.0)
             
-    return None
+            if response.status_code == 401:
+                st.sidebar.error("⚠️ Authentication Error: Verify you replaced your Alpaca Keys correctly on lines 12 & 13.")
+                return None
+                
+            if response.status_code != 200:
+                return None
+                
+            raw_json = response.json()
+            bars_data = raw_json.get("bars", {}).get(ticker_str, [])
+            
+            if not bars_data:
+                return None
+                
+            # Convert JSON array records seamlessly into our analytics dataframe canvas
+            df_records = []
+            for bar in bars_data:
+                df_records.append({
+                    "Date": pd.to_datetime(bar["t"]),
+                    "Close": float(bar["c"])
+                })
+                
+            hist_df = pd.DataFrame(df_records).sort_values(by="Date").set_index("Date")
+            current_price = hist_df['Close'].iloc[-1]
+            
+            # Fetch Open-Source Google News Community RSS Footprint
+            social_rss = f"https://google.com{ticker_str}+stock+investing+forum&hl=en-US&gl=US&ceid=US:en"
+            feed = feedparser.parse(social_rss)
+            headlines = [entry.title for entry in feed.entries[:4]]
+            
+            return {
+                "hist": hist_df,
+                "current_price": current_price,
+                "headlines": headlines
+            }
+    except Exception:
+        return None
 
 def query_qwen_macro_inference(symbol: str, data: dict) -> dict:
     news_context = "\n- ".join(data['headlines'])
@@ -112,18 +128,18 @@ Return exactly this JSON format:
 
 # --- STREAMLIT UI DISPLAY GRAPHICS ---
 st.title("🏛️ Open AI Multi-Horizon Market Terminal")
-st.markdown("An advanced macro visualization station combining official developer API channels, web sentiment parsing, and Qwen prediction engines.")
+st.markdown("An advanced macro visualization station combining secure, documented API channels, web sentiment parsing, and Qwen prediction engines.")
 
 st.sidebar.header("Control Panel")
-ticker_input = st.sidebar.text_input("Stock Ticker Symbol", value="AMZN").upper().strip()
+ticker_input = st.sidebar.text_input("Stock Ticker Symbol", value="AAPL").upper().strip()
 run_btn = st.sidebar.button("RUN WORKSTATION ANALYSIS", type="primary")
 
 if run_btn and ticker_input:
-    with st.spinner(f"Acquiring documented server streams for {ticker_input}..."):
-        data = fetch_stable_market_data(ticker_input)
+    with st.spinner(f"Acquiring high-volume streams for {ticker_input}..."):
+        data = fetch_alpaca_market_data(ticker_input)
         
         if not data:
-            st.error(f"❌ Rate limit actively blocked execution or asset spelling is invalid. Alpha Vantage permits 25 requests daily on free keys.")
+            st.error(f"❌ Failed to locate market streams for ticker: '{ticker_input}'. Please check spelling or verify your Alpaca credentials.")
         else:
             price = data['current_price']
             forecasts = query_qwen_macro_inference(ticker_input, data)
@@ -151,7 +167,7 @@ if run_btn and ticker_input:
                 fig.patch.set_facecolor('#0e1117')
                 ax.set_facecolor('#0e1117')
                 
-                # Plot the historical pricing line safely (Past 30 entries)
+                # Render past pricing history matrix curves (Past 30 entries)
                 hist_subset = data['hist'].tail(30)
                 ax.plot(hist_subset.index, hist_subset['Close'], label='Historical Daily Close', color='#0ea5e9', linewidth=2.5)
                 
