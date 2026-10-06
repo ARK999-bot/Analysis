@@ -116,7 +116,7 @@ def parse_final_payload(df, clean_symbol, is_crypto, macro_df=None):
         headlines = [f"Market updates synced successfully for symbol {clean_symbol}."]
 
     return {
-        "hist": df,  # This will be used for charting the recent timeframe
+        "hist": df,  # Used for charting the recent timeframe
         "macro_hist": macro_df if macro_df is not None else df,
         "current_price": current_price,
         "headlines": headlines,
@@ -129,7 +129,6 @@ def query_qwen_macro_inference(symbol: str, data: dict) -> dict:
     news_context = "\n- ".join(data['headlines'])
     price = data['current_price']
     
-    # HARDENED PROMPT: Explicitly instructs the AI to make unique computations based on raw news variations
     prompt = f"""<|im_start|>system
 You are a professional quantitative financial analyst. Return a valid raw JSON object. Do not include markdown indicators like ```json or trailing text definitions. Your outputs must be dynamically calculated based on the sentiment payload provided.<|im_end|>\n<|im_start|>user
 Asset Profile: {symbol}
@@ -155,17 +154,15 @@ Return exactly this JSON format:
     
     try:
         with httpx.Client() as client:
-            # FIX: Boosted max_new_tokens to 500 to allow complete string layouts
             response = client.post(HF_API_URL, json={"inputs": prompt, "parameters": {"max_new_tokens": 500, "temperature": 0.3}}, timeout=20.0)
             if response.status_code == 200:
                 raw_text = response.json()['generated_text'].strip()
                 if "```" in raw_text:
-                    raw_text = raw_text.split("```")[1].replace("json", "").strip()
+                    raw_text = raw_text.split("```").replace("json", "").strip()
                 return json.loads(raw_text)
     except Exception:
         pass
         
-    # Safe algorithmic variance fallback to create floating percentages even if the cloud API drops out
     import random
     seed_factor = random.uniform(-0.02, 0.02)
     return {
@@ -178,7 +175,6 @@ Return exactly this JSON format:
         "60d": {"score": 0.12, "target": price * (1.0 + (seed_factor * 1.20))},
         "1y": {"score": 0.25, "target": price * (1.0 + (seed_factor * 5.00))}
     }
-
 
 # --- STREAMLIT UI DESIGN ---
 st.title("🏛️ Open AI Multi-Asset Workstation Terminal")
@@ -221,14 +217,23 @@ if run_btn and ticker_input:
                 
                 fig, ax = plt.subplots(figsize=(10, 5.2))
                 fig.patch.set_facecolor('#0e1117')
-                ax.set_facecolor('#0e1117')
+				                ax.set_facecolor('#0e1117')
                 
-                # Plot the historical pricing line (recent 45 periods)
-                hist_subset = data['hist'].tail(45)
-                ax.plot(hist_subset.index, hist_subset['Close'], label='Historical Line Trace', color=data["color"], linewidth=2.5)
+                # Filter past pricing history matrix curves (recent 45 periods)
+                hist_subset = data['hist'].tail(45).copy()
+                
+                # TECHNICAL INDICATOR REPAIR: Calculate a rolling 20-period Simple Moving Average smoothly
+                hist_subset['SMA_20'] = hist_subset['Close'].rolling(window=20).mean()
+                
+                # Plot the asset closing timeline trace
+                ax.plot(hist_subset.index, hist_subset['Close'], label='Historical Close', color=data["color"], linewidth=2.5)
+                
+                # Plot the native 20-day Simple Moving Average overlay line
+                ax.plot(hist_subset.index, hist_subset['SMA_20'], label='SMA (20-Period)', color='#06b6d4', linestyle=':', linewidth=2.0)
                 
                 last_date = hist_subset.index[-1]
-				                # Map only chronological day/year offsets on the prediction plot canvas
+                
+                # Map only chronological day/year offsets on the prediction plot canvas
                 mappings = {"1d": 1, "5d": 5, "30d": 30, "60d": 60, "1y": 365}
                 future_dates = [last_date]
                 future_targets = [price]
@@ -261,5 +266,3 @@ if run_btn and ticker_input:
                     st.caption(f"🔹 {headline}")
 else:
     st.info("💡 Control Menu: Input stock symbols (e.g. NVDA, AAPL) or crypto tokens (e.g. BTC, ETH) above and execute analysis.")
-
-                
