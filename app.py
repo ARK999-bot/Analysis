@@ -25,7 +25,7 @@ def fetch_stable_market_data(symbol: str):
         ticker_str = symbol.strip().upper()
         
         # Free Tier Core Fix: Switched endpoint parameters to Intraday 5-minute ticks
-        url = f"https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={ticker_str}&interval=5min&outputsize=compact&apikey={ALPHA_VANTAGE_KEY}"
+        url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={ticker_str}&interval=5min&outputsize=compact&apikey={ALPHA_VANTAGE_KEY}"
         
         with httpx.Client() as client:
             response = client.get(url, timeout=15.0)
