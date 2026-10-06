@@ -20,7 +20,17 @@ plt.style.use('dark_background')
 def fetch_comprehensive_financials(symbol: str):
     try:
         ticker_str = symbol.strip().upper()
-        ticker = yf.Ticker(ticker_str)
+        
+        # FIX: Create a fake browser session to bypass cloud IP blocks
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        })
+        
+        # Pass the clean session directly to the Ticker engine
+        ticker = yf.Ticker(ticker_str, session=session)
         
         # 1. Capture Long-Term Price Matrix History
         hist = ticker.history(period="2y", interval="1d")
@@ -52,6 +62,7 @@ def fetch_comprehensive_financials(symbol: str):
         }
     except Exception:
         return None
+
 
 def query_qwen_macro_inference(symbol: str, data: dict) -> dict:
     news_context = "\n- ".join(data['headlines'])
