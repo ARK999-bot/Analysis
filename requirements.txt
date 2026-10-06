@@ -1,0 +1,6 @@
+yfinance
+feedparser
+httpx
+matplotlib
+pandas
+streamlit
