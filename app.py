@@ -20,72 +20,70 @@ plt.style.use('dark_background')
 def fetch_alpaca_market_data(symbol: str):
     """
     Queries documented Alpaca v2 server endpoints for pricing timelines.
-    Provides 200 calls/min completely free, entirely immune to cloud IP blocks.
+    Implements an automatic SIP data feed fallback mechanism if IEX yields a blank payload.
     """
-    try:
-        ticker_str = symbol.strip().upper()
-        
-        # Define 1-year timestamp buffers to calculate daily aggregates
-        start_date = (datetime.utcnow() - timedelta(days=365)).strftime('%Y-%m-%d')
-        end_date = datetime.utcnow().strftime('%Y-%m-%d')
-        
-        # Alpaca Native v2 Stock Bars endpoint
-        url = "https://data.alpaca.markets/v2/stocks/bars"
-        params = {
-            "symbols": ticker_str,
-            "timeframe": "1D",
-            "start": start_date,
-            "end": end_date,
-            "limit": 1000,
-            "adjustment": "all",
-            "feed": "iex"  # Clean free-tier data pipeline feed channel
-        }
-        
-        # Standard structural header authorization protocols
-        headers = {
-            "X-ApiKey-Id": ALPACA_KEY_ID,
-            "X-Api-Secret": ALPACA_SECRET
-        }
-        
-        with httpx.Client() as client:
-            response = client.get(url, params=params, headers=headers, timeout=15.0)
-            
-            if response.status_code == 401:
-                st.sidebar.error("⚠️ Authentication Error: Verify you replaced your Alpaca Keys correctly on lines 12 & 13.")
-                return None
-                
-            if response.status_code != 200:
-                return None
-                
-            raw_json = response.json()
-            bars_data = raw_json.get("bars", {}).get(ticker_str, [])
-            
-            if not bars_data:
-                return None
-                
-            # Convert JSON array records seamlessly into our analytics dataframe canvas
-            df_records = []
-            for bar in bars_data:
-                df_records.append({
-                    "Date": pd.to_datetime(bar["t"]),
-                    "Close": float(bar["c"])
-                })
-                
-            hist_df = pd.DataFrame(df_records).sort_values(by="Date").set_index("Date")
-            current_price = hist_df['Close'].iloc[-1]
-            
-            # Fetch Open-Source Google News Community RSS Footprint
-            social_rss = f"https://google.com{ticker_str}+stock+investing+forum&hl=en-US&gl=US&ceid=US:en"
-            feed = feedparser.parse(social_rss)
-            headlines = [entry.title for entry in feed.entries[:4]]
-            
-            return {
-                "hist": hist_df,
-                "current_price": current_price,
-                "headlines": headlines
+    ticker_str = symbol.strip().upper()
+    start_date = (datetime.utcnow() - timedelta(days=365)).strftime('%Y-%m-%d')
+    end_date = datetime.utcnow().strftime('%Y-%m-%d')
+    
+    url = "https://alpaca.markets"
+    headers = {
+        "X-ApiKey-Id": ALPACA_KEY_ID,
+        "X-Api-Secret": ALPACA_SECRET
+    }
+
+    # Attempt fetching using both available feeds sequentially to prevent cloud mapping errors
+    for data_feed in ["iex", "sip"]:
+        try:
+            params = {
+                "symbols": ticker_str,
+                "timeframe": "1D",
+                "start": start_date,
+                "end": end_date,
+                "limit": 1000,
+                "adjustment": "all",
+                "feed": data_feed  # Toggles between iex and sip automatically
             }
-    except Exception:
-        return None
+            
+            with httpx.Client() as client:
+                response = client.get(url, params=params, headers=headers, timeout=15.0)
+                
+                if response.status_code == 401:
+                    st.sidebar.error("⚠️ Authentication Error: Verify your Alpaca Keys are valid and active.")
+                    return None
+                    
+                if response.status_code != 200:
+                    continue
+                    
+                raw_json = response.json()
+                bars_data = raw_json.get("bars", {}).get(ticker_str, [])
+                
+                # If we recovered a valid payload, break the fallback loop and parse data structures
+                if bars_data:
+                    df_records = []
+                    for bar in bars_data:
+                        df_records.append({
+                            "Date": pd.to_datetime(bar["t"]),
+                            "Close": float(bar["c"])
+                        })
+                        
+                    hist_df = pd.DataFrame(df_records).sort_values(by="Date").set_index("Date")
+                    current_price = hist_df['Close'].iloc[-1]
+                    
+                    # Fetch Open-Source Google News Community RSS Footprint
+                    social_rss = f"https://google.com{ticker_str}+stock+investing+forum&hl=en-US&gl=US&ceid=US:en"
+                    feed = feedparser.parse(social_rss)
+                    headlines = [entry.title for entry in feed.entries[:4]]
+                    
+                    return {
+                        "hist": hist_df,
+                        "current_price": current_price,
+                        "headlines": headlines
+                    }
+        except Exception:
+            pass
+            
+    return None
 
 def query_qwen_macro_inference(symbol: str, data: dict) -> dict:
     news_context = "\n- ".join(data['headlines'])
